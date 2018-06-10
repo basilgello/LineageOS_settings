@@ -31,7 +31,7 @@ if [ ! -z "$1" ]; then
   breakfast chagalllte
 
   # build module
-  mmm "$1"
+  mmma "$1"
   exit $?
 fi
 
