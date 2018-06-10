@@ -9,7 +9,7 @@
 
 # start script
 
-if [[ "$(basename -- "$0")" == "android.sh" ]]; then
+if [[ "$(basename -- "$0")" == "init.sh" ]]; then
     echo "Don't run $0, source it" >&2
     exit 1
 fi
