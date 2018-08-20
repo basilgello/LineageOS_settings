@@ -40,9 +40,9 @@ repopick_topic()
 
   # perform repopick
   if [ -z "$2" ]; then
-    repopick -s _"$1" -t "$1"
+    repopick -i -s _"$1" -t "$1"
   else
-    repopick -s _"$1" -t "$1" -g "$2"
+    repopick -i -s _"$1" -t "$1" -g "$2"
   fi
 }
 
