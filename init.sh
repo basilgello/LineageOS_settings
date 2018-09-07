@@ -7,6 +7,22 @@
 
 # functions
 
+gerrit_cr()
+{
+  # $1 is review URL (review.lineageos.org)
+  # $2 is quoted gerrit query ("status:open")
+  # $3 is quoted code-review label ("+2", "+1", "0", "-1", "-2")
+  # $4 is quoted verified label ("+1", "0", "-1")
+
+  IDS=""
+  for ID in $(ssh -p 29418 "$1" 'gerrit query --current-patch-set "'$2'"' | grep "^    revision:" | sed 's,^    revision: ,,')
+  do
+    IDS="$ID $IDS"
+  done
+
+  ssh -p 29418 "$1" "gerrit review --code-review $3 --verified $4 $IDS"
+}
+
 fcb()
 {
   # $1 is file1
