@@ -11,8 +11,24 @@ gerrit_cr()
 {
   # $1 is review URL (review.lineageos.org)
   # $2 is quoted gerrit query ("status:open")
-  # $3 is quoted code-review label ("+2", "+1", "0", "-1", "-2")
-  # $4 is quoted verified label ("+1", "0", "-1")
+  # $3 is quoted code-review label ("-2", "-1", "0", "+1", "+2")
+  # $4 is quoted verified label ("-1", "0", "+1")
+
+  CR_LABEL=""
+  for LABEL in "-2" "-1" "0" "+1" "+2"
+  do
+    [ "$LABEL" = "$3" ] && CR_LABEL="$LABEL" && break
+  done
+
+  [ -z "$CR_LABEL" ] && echo "ERROR: Code-Review label must be \"-2\", \"-1\", \"0\", \"+1\", \"+2\"" && exit 1
+
+  V_LABEL=""
+  for LABEL in "-1" "0" "+1"
+  do
+    [ "$LABEL" = "$4" ] && V_LABEL="$LABEL" && break
+  done
+
+  [ -z "$V_LABEL" ] && echo "ERROR: Verified label must be \"-1\", \"0\", \"+1\"" && exit 1
 
   IDS=""
   for ID in $(ssh -p 29418 "$1" 'gerrit query --current-patch-set "'$2'"' | grep "^    revision:" | sed 's,^    revision: ,,')
@@ -20,7 +36,7 @@ gerrit_cr()
     IDS="$ID $IDS"
   done
 
-  ssh -p 29418 "$1" "gerrit review --code-review $3 --verified $4 $IDS"
+  ssh -p 29418 "$1" "gerrit review --code-review $CR_LABEL --verified $V_LABEL $IDS"
 }
 
 fcb()
