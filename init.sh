@@ -14,6 +14,8 @@ gerrit_cr()
   # $3 is quoted code-review label ("-2", "-1", "0", "+1", "+2",  "n/a")
   # $4 is quoted verified label ("-1", "0", "+1", "n/a")
 
+  [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ] && [ -z "$4" ] && echo "Usage:" && echo "    gerrit_cr <review-server-host> <\"gerrit-query\"> <\"CR-label\"> <\"V-label\">" && return
+
   CR_LABEL=""
   for LABEL in "-2" "-1" "0" "+1" "+2" "n/a"
   do
