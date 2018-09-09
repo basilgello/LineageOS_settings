@@ -16,6 +16,14 @@ fi
 
 # Boot image build:
 if [ "$1" = "bootimage" ]; then
+  # remove old kernel components
+  rm -f $SCRIPTDIR/out/target/product/chagalllte/boot.img
+  rm -f $SCRIPTDIR/out/target/product/chagalllte/ramdisk.img
+  rm -f $SCRIPTDIR/out/target/product/chagalllte/recovery.img
+  rm -f $SCRIPTDIR/out/target/product/chagalllte/recovery.id
+  rm -f $SCRIPTDIR/out/target/product/chagalllte/kernel
+  rm -f $SCRIPTDIR/out/target/product/chagalllte/recovery-ramdisk.cpio
+  rm -rf $SCRIPTDIR/out/target/product/chagalllte/obj/KERNEL_OBJ
 
   # load chagalllte device tree
   breakfast chagalllte
