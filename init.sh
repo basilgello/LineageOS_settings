@@ -7,6 +7,141 @@
 
 # functions
 
+gerrit_reconstruct_topic()
+(
+  # $1 is Gerrit server hostname
+  # $2 is quoted Gerrit query string like "topic:xxx branch:yyy status:open"
+  # $3 is output type ("--git" or "--repopick")
+
+  # Some helper functions
+
+  trap_cleanup()
+  {
+    rm -f "$CVE_TMPFILE"
+    rm -f "$CVE0_TMPFILE"
+    rm -f "$CVEREV_TMPFILE"
+    rm -f "$CVEHEADS_TMPFILE"
+  }
+
+  GERRIT_HOSTNAME="$1"
+  GERRIT_QUERY="$2"
+  OUTPUT_FORMAT="$3"
+
+  if [ -z "$GERRIT_HOSTNAME" ] || [ -z "$GERRIT_QUERY" ]
+  then
+    echo "Usage: reconstruct.sh <Gerrit-hostname> \"<Gerrit-query>\" [--output-format=git|repopick]"
+    echo ""
+    echo "Output formats:"
+    echo "    repopick: print changes in NUMBER/PATCHSET format (newer first)"
+    echo "              to use with repopick"
+    echo "         git: print changes in Project ref format (newer first)"
+    echo "              to use with git fetch"
+    echo ""
+    echo "If --output-format is not specified, default setting is \"repopick\""
+    return
+  fi
+
+  if [ -z "$OUTPUT_FORMAT" ] || [ "$OUTPUT_FORMAT" = "--output-format=repopick" ]
+  then
+    OUTPUT_FORMAT=0
+  elif [ "$OUTPUT_FORMAT" = "--output-format=git" ]
+  then
+    OUTPUT_FORMAT=1
+  else
+    echo "Output type must be --git or --repopick, exiting..."
+    return
+  fi
+
+  CVE_TMPFILE=$(mktemp /tmp/cve-XXXXXXXXXXXXXXXX.txt)
+  CVE0_TMPFILE=$(mktemp /tmp/cve0-XXXXXXXXXXXXXXXX.txt)
+  CVEREV_TMPFILE=$(mktemp /tmp/cve-rev-XXXXXXXXXXXXXXXX.txt)
+  CVEHEADS_TMPFILE=$(mktemp /tmp/cve-heads-XXXXXXXXXXXXXXXX.txt)
+
+  trap trap_cleanup 1 2 3 6
+
+  # Get the JSON list
+
+  ssh -p 29418 "$GERRIT_HOSTNAME" "gerrit query --format JSON --current-patch-set $GERRIT_QUERY" > "$CVE_TMPFILE"
+
+  # Prepare it for jq parse
+
+  sed -i '/moreChanges/d' "$CVE_TMPFILE"
+  echo '{"changes":[' >> "$CVE0_TMPFILE"
+  sed 's|}$|},|' "$CVE_TMPFILE" >> "$CVE0_TMPFILE"
+  echo "{\"project\":\"\",\"branch\":\"\",\"topic\":\"\",\"id\":\"\"}]}" >> "$CVE0_TMPFILE"
+  mv "$CVE0_TMPFILE" "$CVE_TMPFILE"
+
+  # Parse it with jq to get parent revisions
+
+  i=0;
+  while true
+  do
+    NUMBER=$(jq ".changes[$i].number" "$CVE_TMPFILE")
+    [ -z "$NUMBER" ] || [ "$NUMBER" = "null" ] && break
+
+    COMMIT=$(jq -r ".changes[$i].currentPatchSet.revision" "$CVE_TMPFILE")
+    PARENT=$(jq -r ".changes[$i].currentPatchSet.parents[0]" "$CVE_TMPFILE")
+
+    if [ $OUTPUT_FORMAT -eq 0 ]
+    then
+      PATCHSET=$(jq -r ".changes[$i].currentPatchSet.number" "$CVE_TMPFILE")
+
+      echo "$NUMBER/$PATCHSET $COMMIT $PARENT" >> "$CVEREV_TMPFILE"
+    else
+      PROJECT=$(jq -r ".changes[$i].project" "$CVE_TMPFILE")
+      REF=$(jq -r ".changes[$i].currentPatchSet.ref" "$CVE_TMPFILE")
+
+      echo "$PROJECT+$REF $COMMIT $PARENT" >> "$CVEREV_TMPFILE"
+    fi
+
+    i=$((i + 1))
+  done
+
+  # Find the heads
+  cat "$CVEREV_TMPFILE" | while read LINE
+  do
+    COMMIT=$(echo "$LINE" | awk '{print $2}')
+    PARENT=$(echo "$LINE" | awk '{print $3}')
+    grep " $COMMIT$" "$CVEREV_TMPFILE" 1>/dev/null 2>/dev/null
+    [ $? -ne 0 ] && echo "$COMMIT" >> "$CVEHEADS_TMPFILE"
+  done
+
+  # Rewind the found heads
+
+  for HEAD_REV in $(tac "$CVEHEADS_TMPFILE")
+  do
+    REV="$HEAD_REV"
+    while true
+    do
+      if [ $OUTPUT_FORMAT -eq 0 ]
+      then
+        LINE=$(grep "^[0-9]*/[0-9]* $REV" "$CVEREV_TMPFILE")
+      else
+        LINE=$(grep "+refs/changes/[0-9]*/[0-9]*/[0-9]* $REV" "$CVEREV_TMPFILE")
+      fi
+
+      [ -z "$LINE" ] && break
+
+      NUMBER=$(echo "$LINE" | awk '{print $1}')
+      PARENT=$(echo "$LINE" | awk '{print $3}')
+
+      if [ $OUTPUT_FORMAT -eq 0 ]
+      then
+        echo $NUMBER
+      else
+        NUMBER=$(echo "$NUMBER" | sed 's/+/ /')
+        echo $NUMBER
+      fi
+
+      REV="$PARENT"
+    done
+  done
+
+  # cleanup
+
+  trap_cleanup
+)
+
 gerrit_cr()
 {
   # $1 is review URL (review.lineageos.org)
