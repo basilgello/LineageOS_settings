@@ -110,6 +110,7 @@ gerrit_reconstruct_topic()
       i=$((i + 1))
     done
   elif [ "$GERRIT_CHECKOUT_METHOD"="ssh" ]
+  then
     ssh -p $GERRIT_SSH_PORT "$GERRIT_HOSTNAME" \
       "gerrit query --format JSON --current-patch-set $GERRIT_QUERY" > "$REC_TMPFILE"
 
@@ -198,13 +199,29 @@ gerrit_reconstruct_topic()
 )
 
 gerrit_cr()
-{
+(
   # $1 is review URL (review.lineageos.org)
   # $2 is quoted gerrit query ("status:open")
   # $3 is quoted code-review label ("-2", "-1", "0", "+1", "+2",  "n/a")
   # $4 is quoted verified label ("-1", "0", "+1", "n/a")
 
-  [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ] && [ -z "$4" ] && echo "Usage:" && echo "    gerrit_cr <review-server-host> <\"gerrit-query\"> <\"CR-label\"> <\"V-label\">" && return
+  # Some helper functions
+
+  trap_cleanup()
+  {
+    rm -f "$CR_TMPFILE"
+    rm -f "$CR0_TMPFILE"
+  }
+
+  GERRIT_HOSTNAME="$1"
+  GERRIT_QUERY="$2"
+
+  [ -z "$GERRIT_HOSTNAME" ] || \
+  [ -z "$GERRIT_QUERY" ] || \
+  [ -z "$3" ] || \
+  [ -z "$4" ] && \
+  echo "Usage: gerrit_cr <review-server-host> <\"gerrit-query\"> <\"CR-label\"> <\"V-label\">" && \
+  return
 
   CR_LABEL=""
   for LABEL in "-2" "-1" "0" "+1" "+2" "n/a"
@@ -236,14 +253,64 @@ gerrit_cr()
     V_LABEL="--verified $V_LABEL"
   fi
 
+  CR_TMPFILE=$(mktemp $HOME/CR-XXXXXXXXXXXXXXXX.txt)
+  CR0_TMPFILE=$(mktemp $HOME/CR0-XXXXXXXXXXXXXXXX.txt)
+
+  trap trap_cleanup 1 2 3 6
+
+  # Retrieve list of changes
+
+  if [ "$GERRIT_CHECKOUT_METHOD" = "http" ] || [ "$GERRIT_CHECKOUT_METHOD" = "https" ]
+  then
+    curl -s -G "$GERRIT_CHECKOUT_METHOD://$GERRIT_HOSTNAME/changes/" \
+         --data-urlencode "q=$GERRIT_QUERY" \
+         --data-urlencode "o=CURRENT_COMMIT" \
+         --data-urlencode "o=CURRENT_REVISION" > "$CR_TMPFILE"
+
+    # Prepare it for jq parse
+
+    sed -i '1d' "$CR_TMPFILE"
+
+    # Parse it with jq to get parent revisions
+
+    i=0;
+    while true
+    do
+      NUMBER=$(jq ".[$i]._number" "$CR_TMPFILE")
+      [ -z "$NUMBER" ] || [ "$NUMBER" = "null" ] && break
+
+      COMMIT=$(jq -r ".[$i].current_revision" "$CR_TMPFILE")
+
+      echo "$COMMIT" >> "$CR0_TMPFILE"
+
+      i=$((i + 1))
+    done
+  elif [ "$GERRIT_CHECKOUT_METHOD"="ssh" ]
+  then
+    ssh -p $GERRIT_SSH_PORT "$GERRIT_HOSTNAME" 'gerrit query --current-patch-set "'$GERRIT_QUERY'"' | \
+      grep "^    revision:" | \
+      sed 's,^    revision: ,,' > "$CR0_TMPFILE"
+  else
+    echo "ERROR: The GERRIT_CHECKOUT_METHOD setting must be \"http\", \"https\" or \"ssh\"!"
+    return
+  fi
+
+  # Build list of change-ids
+
   IDS=""
-  for ID in $(ssh -p 29418 "$1" 'gerrit query --current-patch-set "'$2'"' | grep "^    revision:" | sed 's,^    revision: ,,')
+  for ID in $(cat "$CR0_TMPFILE")
   do
     IDS="$ID $IDS"
   done
 
-  ssh -p 29418 "$1" "gerrit review $CR_LABEL $V_LABEL $IDS"
-}
+  # Perform actual review via SSH
+
+  ssh -p $GERRIT_SSH_PORT "$1" "gerrit review $CR_LABEL $V_LABEL $IDS"
+
+  # cleanup
+
+  trap_cleanup
+)
 
 fcb()
 {
