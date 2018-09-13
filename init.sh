@@ -354,7 +354,7 @@ repopick_topic()
 mkbuildbranch()
 {
   repo abandon _build
-  repo forall -c "BRANCHES=\$(git branch | grep -ioe \" _[0-9A-Za-z_-]*$\"); [ \$? -eq 0 ] && repo start _build . && for BRANCH in \$BRANCHES; do git merge \$BRANCH; done"
+  repo forall -c "BRANCHES=\$(git branch | grep -ioe \" _[0-9A-Za-z_-]*$\"); [ \$? -eq 0 ] && repo start _build . && for BRANCH in \$BRANCHES; do git merge -m \"Merging the build\" \$BRANCH; done"
 }
 
 rmbuildbranch()
