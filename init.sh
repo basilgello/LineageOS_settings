@@ -5,12 +5,24 @@
 # 2018 Vasyl Gello <vasek.gello@gmail.com>
 #
 
+# configuration block
+
+# Default Gerrit checkout (fetch) method:
+# Can be "http" / "https" (anonymous or authenticated)
+# or "ssh" (authenticated)
+
+GERRIT_CHECKOUT_METHOD="https"
+
+# Gerrit SSH port (default is 29418)
+
+GERRIT_SSH_PORT=29418
+
 # functions
 
 gerrit_reconstruct_topic()
 (
   # $1 is Gerrit server hostname
-  # $2 is quoted Gerrit query string like "topic:xxx branch:yyy status:open"
+  # $2 is quoted Gerrit query string ("topic:xxx branch:yyy status:open")
   # $3 is output type ("--git" or "--repopick")
 
   # Some helper functions
@@ -61,43 +73,86 @@ gerrit_reconstruct_topic()
 
   # Get the JSON list
 
-  ssh -p 29418 "$GERRIT_HOSTNAME" "gerrit query --format JSON --current-patch-set $GERRIT_QUERY" > "$CVE_TMPFILE"
+  if [ "$GERRIT_CHECKOUT_METHOD"="http" ] || [ "$GERRIT_CHECKOUT_METHOD"="http" ]
+  then
+    curl -s -G "$GERRIT_CHECKOUT_METHOD://$GERRIT_HOSTNAME/changes/" \
+         --data-urlencode "q=$GERRIT_QUERY" \
+         --data-urlencode "o=CURRENT_COMMIT" \
+         --data-urlencode "o=CURRENT_REVISION" > "$CVE_TMPFILE"
 
-  # Prepare it for jq parse
+    # Prepare it for jq parse
 
-  sed -i '/moreChanges/d' "$CVE_TMPFILE"
-  echo '{"changes":[' >> "$CVE0_TMPFILE"
-  sed 's|}$|},|' "$CVE_TMPFILE" >> "$CVE0_TMPFILE"
-  echo "{\"project\":\"\",\"branch\":\"\",\"topic\":\"\",\"id\":\"\"}]}" >> "$CVE0_TMPFILE"
-  mv "$CVE0_TMPFILE" "$CVE_TMPFILE"
+    sed -i '1d' "$CVE_TMPFILE"
 
-  # Parse it with jq to get parent revisions
+    # Parse it with jq to get parent revisions
 
-  i=0;
-  while true
-  do
-    NUMBER=$(jq ".changes[$i].number" "$CVE_TMPFILE")
-    [ -z "$NUMBER" ] || [ "$NUMBER" = "null" ] && break
+    i=0;
+    while true
+    do
+      NUMBER=$(jq ".[$i]._number" "$CVE_TMPFILE")
+      [ -z "$NUMBER" ] || [ "$NUMBER" = "null" ] && break
 
-    COMMIT=$(jq -r ".changes[$i].currentPatchSet.revision" "$CVE_TMPFILE")
-    PARENT=$(jq -r ".changes[$i].currentPatchSet.parents[0]" "$CVE_TMPFILE")
+      COMMIT=$(jq -r ".[$i].current_revision" "$CVE_TMPFILE")
+      PARENT=$(jq -r ".[$i].revisions.\""$COMMIT"\".commit.parents[0].commit" "$CVE_TMPFILE")
 
-    if [ $OUTPUT_FORMAT -eq 0 ]
-    then
-      PATCHSET=$(jq -r ".changes[$i].currentPatchSet.number" "$CVE_TMPFILE")
+      if [ $OUTPUT_FORMAT -eq 0 ]
+      then
+        PATCHSET=$(jq -r ".[$i].revisions.\""$COMMIT"\"._number" "$CVE_TMPFILE")
 
-      echo "$NUMBER/$PATCHSET $COMMIT $PARENT" >> "$CVEREV_TMPFILE"
-    else
-      PROJECT=$(jq -r ".changes[$i].project" "$CVE_TMPFILE")
-      REF=$(jq -r ".changes[$i].currentPatchSet.ref" "$CVE_TMPFILE")
+        echo "$NUMBER/$PATCHSET $COMMIT $PARENT" >> "$CVEREV_TMPFILE"
+      else
+        PROJECT=$(jq -r ".[$i].revisions.\""$COMMIT"\".fetch.\"anonymous http\".url" "$CVE_TMPFILE")
+        REF=$(jq -r ".[$i].revisions.\""$COMMIT"\".fetch.\"anonymous http\".ref" "$CVE_TMPFILE")
 
-      echo "$PROJECT+$REF $COMMIT $PARENT" >> "$CVEREV_TMPFILE"
-    fi
+        echo "$PROJECT+$REF $COMMIT $PARENT" >> "$CVEREV_TMPFILE"
+      fi
 
-    i=$((i + 1))
-  done
+      i=$((i + 1))
+    done
+  elif [ "$GERRIT_CHECKOUT_METHOD"="ssh" ]
+    ssh -p $GERRIT_SSH_PORT "$GERRIT_HOSTNAME" \
+      "gerrit query --format JSON --current-patch-set $GERRIT_QUERY" > "$CVE_TMPFILE"
+
+    # Prepare it for jq parse
+
+    sed -i '/moreChanges/d' "$CVE_TMPFILE"
+    echo '{"changes":[' >> "$CVE0_TMPFILE"
+    sed 's|}$|},|' "$CVE_TMPFILE" >> "$CVE0_TMPFILE"
+    echo "{\"project\":\"\",\"branch\":\"\",\"topic\":\"\",\"id\":\"\"}]}" >> "$CVE0_TMPFILE"
+    mv "$CVE0_TMPFILE" "$CVE_TMPFILE"
+
+    # Parse it with jq to get parent revisions
+
+    i=0;
+    while true
+    do
+      NUMBER=$(jq ".changes[$i].number" "$CVE_TMPFILE")
+      [ -z "$NUMBER" ] || [ "$NUMBER" = "null" ] && break
+
+      COMMIT=$(jq -r ".changes[$i].currentPatchSet.revision" "$CVE_TMPFILE")
+      PARENT=$(jq -r ".changes[$i].currentPatchSet.parents[0]" "$CVE_TMPFILE")
+
+      if [ $OUTPUT_FORMAT -eq 0 ]
+      then
+        PATCHSET=$(jq -r ".changes[$i].currentPatchSet.number" "$CVE_TMPFILE")
+
+        echo "$NUMBER/$PATCHSET $COMMIT $PARENT" >> "$CVEREV_TMPFILE"
+      else
+        PROJECT=$(jq -r ".changes[$i].project" "$CVE_TMPFILE")
+        REF=$(jq -r ".changes[$i].currentPatchSet.ref" "$CVE_TMPFILE")
+
+        echo "$PROJECT+$REF $COMMIT $PARENT" >> "$CVEREV_TMPFILE"
+      fi
+
+      i=$((i + 1))
+    done
+  else
+    echo "ERROR: The GERRIT_CHECKOUT_METHOD setting must be \"http\", \"https\" or \"ssh\"!"
+    return
+  fi
 
   # Find the heads
+
   cat "$CVEREV_TMPFILE" | while read LINE
   do
     COMMIT=$(echo "$LINE" | awk '{print $2}')
