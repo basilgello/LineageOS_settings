@@ -29,10 +29,10 @@ gerrit_reconstruct_topic()
 
   trap_cleanup()
   {
-    rm -f "$CVE_TMPFILE"
-    rm -f "$CVE0_TMPFILE"
-    rm -f "$CVEREV_TMPFILE"
-    rm -f "$CVEHEADS_TMPFILE"
+    rm -f "$REC_TMPFILE"
+    rm -f "$REC0_TMPFILE"
+    rm -f "$RECREV_TMPFILE"
+    rm -f "$RECHEADS_TMPFILE"
   }
 
   GERRIT_HOSTNAME="$1"
@@ -64,10 +64,10 @@ gerrit_reconstruct_topic()
     return
   fi
 
-  CVE_TMPFILE=$(mktemp /tmp/cve-XXXXXXXXXXXXXXXX.txt)
-  CVE0_TMPFILE=$(mktemp /tmp/cve0-XXXXXXXXXXXXXXXX.txt)
-  CVEREV_TMPFILE=$(mktemp /tmp/cve-rev-XXXXXXXXXXXXXXXX.txt)
-  CVEHEADS_TMPFILE=$(mktemp /tmp/cve-heads-XXXXXXXXXXXXXXXX.txt)
+  REC_TMPFILE=$(mktemp $HOME/REC-XXXXXXXXXXXXXXXX.txt)
+  REC0_TMPFILE=$(mktemp $HOME/REC0-XXXXXXXXXXXXXXXX.txt)
+  RECREV_TMPFILE=$(mktemp $HOME/REC-rev-XXXXXXXXXXXXXXXX.txt)
+  RECHEADS_TMPFILE=$(mktemp $HOME/REC-heads-XXXXXXXXXXXXXXXX.txt)
 
   trap trap_cleanup 1 2 3 6
 
@@ -78,70 +78,70 @@ gerrit_reconstruct_topic()
     curl -s -G "$GERRIT_CHECKOUT_METHOD://$GERRIT_HOSTNAME/changes/" \
          --data-urlencode "q=$GERRIT_QUERY" \
          --data-urlencode "o=CURRENT_COMMIT" \
-         --data-urlencode "o=CURRENT_REVISION" > "$CVE_TMPFILE"
+         --data-urlencode "o=CURRENT_REVISION" > "$REC_TMPFILE"
 
     # Prepare it for jq parse
 
-    sed -i '1d' "$CVE_TMPFILE"
+    sed -i '1d' "$REC_TMPFILE"
 
     # Parse it with jq to get parent revisions
 
     i=0;
     while true
     do
-      NUMBER=$(jq ".[$i]._number" "$CVE_TMPFILE")
+      NUMBER=$(jq ".[$i]._number" "$REC_TMPFILE")
       [ -z "$NUMBER" ] || [ "$NUMBER" = "null" ] && break
 
-      COMMIT=$(jq -r ".[$i].current_revision" "$CVE_TMPFILE")
-      PARENT=$(jq -r ".[$i].revisions.\""$COMMIT"\".commit.parents[0].commit" "$CVE_TMPFILE")
+      COMMIT=$(jq -r ".[$i].current_revision" "$REC_TMPFILE")
+      PARENT=$(jq -r ".[$i].revisions.\""$COMMIT"\".commit.parents[0].commit" "$REC_TMPFILE")
 
       if [ $OUTPUT_FORMAT -eq 0 ]
       then
-        PATCHSET=$(jq -r ".[$i].revisions.\""$COMMIT"\"._number" "$CVE_TMPFILE")
+        PATCHSET=$(jq -r ".[$i].revisions.\""$COMMIT"\"._number" "$REC_TMPFILE")
 
-        echo "$NUMBER/$PATCHSET $COMMIT $PARENT" >> "$CVEREV_TMPFILE"
+        echo "$NUMBER/$PATCHSET $COMMIT $PARENT" >> "$RECREV_TMPFILE"
       else
-        PROJECT=$(jq -r ".[$i].revisions.\""$COMMIT"\".fetch.\"anonymous http\".url" "$CVE_TMPFILE")
-        REF=$(jq -r ".[$i].revisions.\""$COMMIT"\".fetch.\"anonymous http\".ref" "$CVE_TMPFILE")
+        PROJECT=$(jq -r ".[$i].revisions.\""$COMMIT"\".fetch.\"anonymous http\".url" "$REC_TMPFILE")
+        REF=$(jq -r ".[$i].revisions.\""$COMMIT"\".fetch.\"anonymous http\".ref" "$REC_TMPFILE")
 
-        echo "$PROJECT+$REF $COMMIT $PARENT" >> "$CVEREV_TMPFILE"
+        echo "$PROJECT+$REF $COMMIT $PARENT" >> "$RECREV_TMPFILE"
       fi
 
       i=$((i + 1))
     done
   elif [ "$GERRIT_CHECKOUT_METHOD"="ssh" ]
     ssh -p $GERRIT_SSH_PORT "$GERRIT_HOSTNAME" \
-      "gerrit query --format JSON --current-patch-set $GERRIT_QUERY" > "$CVE_TMPFILE"
+      "gerrit query --format JSON --current-patch-set $GERRIT_QUERY" > "$REC_TMPFILE"
 
     # Prepare it for jq parse
 
-    sed -i '/moreChanges/d' "$CVE_TMPFILE"
-    echo '{"changes":[' >> "$CVE0_TMPFILE"
-    sed 's|}$|},|' "$CVE_TMPFILE" >> "$CVE0_TMPFILE"
-    echo "{\"project\":\"\",\"branch\":\"\",\"topic\":\"\",\"id\":\"\"}]}" >> "$CVE0_TMPFILE"
-    mv "$CVE0_TMPFILE" "$CVE_TMPFILE"
+    sed -i '/moreChanges/d' "$REC_TMPFILE"
+    echo '{"changes":[' >> "$REC0_TMPFILE"
+    sed 's|}$|},|' "$REC_TMPFILE" >> "$REC0_TMPFILE"
+    echo "{\"project\":\"\",\"branch\":\"\",\"topic\":\"\",\"id\":\"\"}]}" >> "$REC0_TMPFILE"
+    mv "$REC0_TMPFILE" "$REC_TMPFILE"
 
     # Parse it with jq to get parent revisions
 
     i=0;
     while true
     do
-      NUMBER=$(jq ".changes[$i].number" "$CVE_TMPFILE")
+      NUMBER=$(jq ".changes[$i].number" "$REC_TMPFILE")
       [ -z "$NUMBER" ] || [ "$NUMBER" = "null" ] && break
 
-      COMMIT=$(jq -r ".changes[$i].currentPatchSet.revision" "$CVE_TMPFILE")
-      PARENT=$(jq -r ".changes[$i].currentPatchSet.parents[0]" "$CVE_TMPFILE")
+      COMMIT=$(jq -r ".changes[$i].currentPatchSet.revision" "$REC_TMPFILE")
+      PARENT=$(jq -r ".changes[$i].currentPatchSet.parents[0]" "$REC_TMPFILE")
 
       if [ $OUTPUT_FORMAT -eq 0 ]
       then
-        PATCHSET=$(jq -r ".changes[$i].currentPatchSet.number" "$CVE_TMPFILE")
+        PATCHSET=$(jq -r ".changes[$i].currentPatchSet.number" "$REC_TMPFILE")
 
-        echo "$NUMBER/$PATCHSET $COMMIT $PARENT" >> "$CVEREV_TMPFILE"
+        echo "$NUMBER/$PATCHSET $COMMIT $PARENT" >> "$RECREV_TMPFILE"
       else
-        PROJECT=$(jq -r ".changes[$i].project" "$CVE_TMPFILE")
-        REF=$(jq -r ".changes[$i].currentPatchSet.ref" "$CVE_TMPFILE")
+        PROJECT=$(jq -r ".changes[$i].project" "$REC_TMPFILE")
+        REF=$(jq -r ".changes[$i].currentPatchSet.ref" "$REC_TMPFILE")
 
-        echo "$PROJECT+$REF $COMMIT $PARENT" >> "$CVEREV_TMPFILE"
+        echo "$PROJECT+$REF $COMMIT $PARENT" >> "$RECREV_TMPFILE"
       fi
 
       i=$((i + 1))
@@ -153,26 +153,26 @@ gerrit_reconstruct_topic()
 
   # Find the heads
 
-  cat "$CVEREV_TMPFILE" | while read LINE
+  cat "$RECREV_TMPFILE" | while read LINE
   do
     COMMIT=$(echo "$LINE" | awk '{print $2}')
     PARENT=$(echo "$LINE" | awk '{print $3}')
-    grep " $COMMIT$" "$CVEREV_TMPFILE" 1>/dev/null 2>/dev/null
-    [ $? -ne 0 ] && echo "$COMMIT" >> "$CVEHEADS_TMPFILE"
+    grep " $COMMIT$" "$RECREV_TMPFILE" 1>/dev/null 2>/dev/null
+    [ $? -ne 0 ] && echo "$COMMIT" >> "$RECHEADS_TMPFILE"
   done
 
   # Rewind the found heads
 
-  for HEAD_REV in $(tac "$CVEHEADS_TMPFILE")
+  for HEAD_REV in $(tac "$RECHEADS_TMPFILE")
   do
     REV="$HEAD_REV"
     while true
     do
       if [ $OUTPUT_FORMAT -eq 0 ]
       then
-        LINE=$(grep "^[0-9]*/[0-9]* $REV" "$CVEREV_TMPFILE")
+        LINE=$(grep "^[0-9]*/[0-9]* $REV" "$RECREV_TMPFILE")
       else
-        LINE=$(grep "+refs/changes/[0-9]*/[0-9]*/[0-9]* $REV" "$CVEREV_TMPFILE")
+        LINE=$(grep "+refs/changes/[0-9]*/[0-9]*/[0-9]* $REV" "$RECREV_TMPFILE")
       fi
 
       [ -z "$LINE" ] && break
