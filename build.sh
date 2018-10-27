@@ -1,6 +1,7 @@
 #!/bin/bash
 
 export LC_ALL=C
+export RELEASE_TYPE=RELEASE
 
 SCRIPTDIR="$(readlink -f "$0")"
 SCRIPTDIR="$(dirname "$SCRIPTDIR")"
