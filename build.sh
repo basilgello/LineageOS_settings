@@ -49,6 +49,7 @@ fi
 export ANDROID_JACK_VM_ARGS="-Dfile.encoding=UTF-8 -XX:+TieredCompilation -Xmx4G"
 
 # delete old falshable zips and object files
+rm -f $SCRIPTDIR/out/dist/*chagalllte*.zip
 rm -f $SCRIPTDIR/out/target/product/chagalllte/*.img
 rm -f $SCRIPTDIR/out/target/product/chagalllte/*.zip*
 rm -f $SCRIPTDIR/out/target/product/chagalllte/kernel
@@ -62,8 +63,8 @@ breakfast chagalllte
 # check for newest tzdata
 python -B external/icu/tools/update-tzdata.py
 
-# build the flashable zips
-brunch chagalllte
+# build the distribution
+mka target-files-package dist
 RET=$?
 
 # kill all jack instances
