@@ -17,9 +17,9 @@ fi
 
 if [ ! -z "$SERVER_DNSDOMAIN" ]
 then
-    SERVER_URL="$SERVER_HOSTNAME.$SERVER_DNSDOMAIN:$SERVER_PORT"
+    SERVER_URL="$SERVER_HOSTNAME.$SERVER_DNSDOMAIN"
 else
-    SERVER_URL="$SERVER_HOSTNAME:$SERVER_PORT"
+    SERVER_URL="$SERVER_HOSTNAME"
 fi
 
 # check if certificates are present
@@ -127,7 +127,7 @@ do
       "id": "5eb63bbbe01eeed093cb22bb8f5acdc3",
       "romtype": "$BUILD_RELTYPE",
       "size": $OTAFILESIZE,
-      "url": "http://$SERVER_URL/$OTAFILENAME",
+      "url": "https://$SERVER_URL:$SERVER_PORT/$OTAFILENAME",
       "version": "$BUILD_VERSION"
     }
   ]
@@ -149,9 +149,14 @@ then
     echo "ERROR: Can not start busybox httpd - busybox missing!"
     exit 1
 else
-    echo "Starting HTTP server on port 8080. Press Ctrl-C to stop..."
+    echo "Starting HTTPS server on port $SERVER_PORT. Press Enter to stop..."
     OLDPWD="$PWD"
     cd "$SCRIPTDIR/out/dist"
-    busybox httpd -f -p 8080
-    echo "HTTP Server on port 8080 terminated, have fun!"
+    busybox httpd -v -f -p 127.0.0.1:62000 &
+    BUSYBOX_PID=$!
+    socat OPENSSL-LISTEN:$SERVER_PORT,reuseaddr,fork,pf=ip6,certificate="$SCRIPTDIR/certs/$SERVER_URL.pem",verify=0 TCP:127.0.0.1:62000 &
+    read -s password
+    kill $BUSYBOX_PID $(ps aux | grep OPENSSL-LISTEN | grep -v grep | awk '{print $2}')
+    echo "HTTPS Server on port $SERVER_PORT terminated, have fun!"
+    cd "$OLDPWD"
 fi
