@@ -351,6 +351,12 @@ repopick_topic()
   fi
 }
 
+rebaseall()
+{
+  rmbuildbranch
+  repo forall -c "BRANCHES=\$(git branch | grep -ioe \" _[0-9A-Za-z_-]*$\"); [ \$? -eq 0 ] && for BRANCH in \$BRANCHES; do git checkout \$BRANCH; repo rebase .; done"
+}
+
 mkbuildbranch()
 {
   repo abandon _build
