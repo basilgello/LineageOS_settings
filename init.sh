@@ -354,13 +354,13 @@ repopick_topic()
 rebaseall()
 {
   rmbuildbranch
-  repo forall -c "BRANCHES=\$(git branch | grep -ioe \" _[0-9A-Za-z_-]*$\"); [ \$? -eq 0 ] && for BRANCH in \$BRANCHES; do git checkout \$BRANCH; repo rebase .; done"
+  repo forall -c "BRANCHES=\$(git branch | grep -ioe \" _[0-9A-Za-z_-.]*$\"); [ \$? -eq 0 ] && for BRANCH in \$BRANCHES; do git checkout \$BRANCH; repo rebase .; done"
 }
 
 mkbuildbranch()
 {
   repo abandon _build
-  repo forall -c "BRANCHES=\$(git branch | grep -ioe \" _[0-9A-Za-z_-]*$\"); [ \$? -eq 0 ] && repo start _build . && for BRANCH in \$BRANCHES; do git merge -m \"Merging the build\" \$BRANCH; done"
+  repo forall -c "BRANCHES=\$(git branch | grep -ioe \" _[0-9A-Za-z_-.]*$\"); [ \$? -eq 0 ] && repo start _build . && for BRANCH in \$BRANCHES; do git merge -m \"Merging the build\" \$BRANCH; done"
 }
 
 rmbuildbranch()
