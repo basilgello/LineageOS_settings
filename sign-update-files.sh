@@ -1,28 +1,27 @@
 #!/bin/bash
 
+#
+# Sign the LineageOS update files
+#
+# Author: Vasyl Gello <vasek.gello@gmail.com>
+# Date:   08.04.2019
+#
+
 SCRIPTDIR=$(readlink -f "$0")
 SCRIPTDIR=$(dirname "$SCRIPTDIR")
 
-# check hostname and domain of computer
+# Check if build config file is present
 
-SERVER_HOSTNAME=$(cat /etc/hostname)
-SERVER_DNSDOMAIN=$(grep "^search " /etc/resolv.conf | sed 's|^search ||')
-SERVER_PORT=8080
-
-if [ -z "$SERVER_HOSTNAME" ]
+if [  -e "$SCRIPTDIR/build.config" ]
 then
-    echo "Cannot determine server hostname! Exiting..."
+  . "$SCRIPTDIR/build.config"
+else
+  echo "No build config found!"
+    echo "Exiting..."
     exit 1
 fi
 
-if [ ! -z "$SERVER_DNSDOMAIN" ]
-then
-    SERVER_URL="$SERVER_HOSTNAME.$SERVER_DNSDOMAIN"
-else
-    SERVER_URL="$SERVER_HOSTNAME"
-fi
-
-# check if certificates are present
+# Check if certificates are present
 
 if [ ! -d "$SCRIPTDIR/certs" ] || [ ! -e "$SCRIPTDIR/certs/releasekey.x509.pem" ]
 then
@@ -30,13 +29,6 @@ then
     echo "Please run generate-signing-keys.sh"
     echo "Exiting..."
     exit 1
-fi
-
-if [ -d "$SCRIPTDIR/out/dist/updates" ]
-then
-    rm -f $SCRIPTDIR/out/dist/updates/*
-else
-    mkdir -p "$SCRIPTDIR/out/dist/updates"
 fi
 
 # Ask for signing keys unlock password
@@ -59,20 +51,6 @@ do
 
     for TARGET_FILES_ZIP in $SCRIPTDIR/out/dist/*$DEVICE_CANDIDATE-target_files-*.zip
     do
-        # sign target APKs
-
-        export ANDROID_SECURE_STORAGE_CMD="echo '$password'"
-        "$SCRIPTDIR/build/tools/releasetools/sign_target_files_apks" \
-        -o -d "$SCRIPTDIR/certs" \
-        "$TARGET_FILES_ZIP" \
-        "$TARGET_FILES_ZIP.signed"
-
-        if [ $? -ne 0 ]
-        then
-            rm -f "$TARGET_FILES_ZIP.signed"
-            exit 1
-        fi
-
         # Extract the required props and generate resulting ZIP name
 
         BUILD_PROP=$(unzip -p "$TARGET_FILES_ZIP" SYSTEM/build.prop)
@@ -89,7 +67,6 @@ do
                        grep "ro.cm.releasetype" | \
                        grep -ioe "=.*$" | \
                        sed 's#=##')
-
         BUILD_DATE_TS=$(echo "$BUILD_PROP" | \
                        grep "ro.build.date.utc" | \
                        grep -ioe "=[0-9]*$" | \
@@ -97,6 +74,72 @@ do
         BUILD_DATE=$(date +%Y%m%d -d @$BUILD_DATE_TS)
 
         OTAFILENAME="$BUILD_FLAVOR-$BUILD_VERSION-$BUILD_DATE-$BUILD_RELTYPE-$DEVICE_CANDIDATE-signed.zip"
+
+        # Rewrite the build.prop with custom Lineage updater URI and
+        # inject the pinned CA certificate if required
+
+        if [ ! -z "$CUSTOM_UPDATER_URL" ]
+        then
+            unzip "$TARGET_FILES_ZIP" SYSTEM/build.prop \
+                META/filesystem_config.txt \
+                -d "$SCRIPTDIR/out/dist/"
+
+            if [ $? -ne 0 ]
+            then
+                exit 1
+            fi
+
+            pushd "$SCRIPTDIR/out/dist"
+
+            sed -i '/lineage.updater.uri/d' "SYSTEM/build.prop"
+
+            # Place proper updater URL property depending on build version
+
+            BUILD_VERSION_NUMBER=$(( $(echo "$BUILD_VERSION" | sed 's/\..*$//') ))
+            if [ $BUILD_VERSION_NUMBER -lt 15 ]
+            then
+                echo "cm.updater.uri=$CUSTOM_UPDATER_URL" >> "SYSTEM/build.prop"
+            else
+                echo "lineage.updater.uri=$CUSTOM_UPDATER_URL" >> "SYSTEM/build.prop"
+            fi
+
+            if [ -e "$SCRIPTDIR/certs/rootCA.pem" ]
+            then
+                mkdir "SYSTEM/etc"
+                cp "$SCRIPTDIR/certs/rootCA.pem" "SYSTEM/etc/updater-ca.pem"
+                echo "system/etc/updater-ca.pem 0 0 644 \
+                      selabel=u:object_r:system_file:s0 capabilities=0x0" >> \
+                      META/filesystem_config.txt
+            fi
+
+            zip -r "$TARGET_FILES_ZIP" SYSTEM META
+
+            if [ $? -ne 0 ]
+            then
+                popd
+                rm -rf SYSTEM
+                rm -rf META
+                exit 1
+            fi
+
+            rm -rf SYSTEM
+            rm -rf META
+            popd
+        fi
+
+        # sign target APKs
+
+        export ANDROID_SECURE_STORAGE_CMD="echo '$password'"
+        "$SCRIPTDIR/build/tools/releasetools/sign_target_files_apks" \
+        -o -d "$SCRIPTDIR/certs" \
+        "$TARGET_FILES_ZIP" \
+        "$TARGET_FILES_ZIP.signed"
+
+        if [ $? -ne 0 ]
+        then
+            rm -f "$TARGET_FILES_ZIP.signed"
+            exit 1
+        fi
 
         # Sign the final OTA
 
@@ -113,50 +156,9 @@ do
             exit 1
         fi
 
-        OTAFILESIZE=$(stat -c "%s" "$SCRIPTDIR/out/dist/$OTAFILENAME")
-
-        # Generate updater file
-
-        BUILD_RELEASE_CHANNEL=$(echo "$BUILD_RELTYPE" | tr '[:upper:]' '[:lower:]')
-        cat << UPDATERFILE > "$SCRIPTDIR/out/dist/updates/$DEVICE_CANDIDATE"_"$BUILD_RELEASE_CHANNEL"
-{
-  "response": [
-    {
-      "datetime": $BUILD_DATE_TS,
-      "filename": "$OTAFILENAME",
-      "id": "5eb63bbbe01eeed093cb22bb8f5acdc3",
-      "romtype": "$BUILD_RELTYPE",
-      "size": $OTAFILESIZE,
-      "url": "https://$SERVER_URL:$SERVER_PORT/$OTAFILENAME",
-      "version": "$BUILD_VERSION"
-    }
-  ]
-}
-UPDATERFILE
-
         # Cleanup intermediate files
 
         rm -f "$TARGET_FILES_ZIP.signed"
         rm -f "$TARGET_FILES_ZIP"
     done
 done
-
-# Start the HTTP server
-
-which busybox 1>/dev/null 2>/dev/null
-if [ $? -ne 0 ]
-then
-    echo "ERROR: Can not start busybox httpd - busybox missing!"
-    exit 1
-else
-    echo "Starting HTTPS server on port $SERVER_PORT. Press Enter to stop..."
-    OLDPWD="$PWD"
-    cd "$SCRIPTDIR/out/dist"
-    busybox httpd -v -f -p 127.0.0.1:62000 &
-    BUSYBOX_PID=$!
-    socat OPENSSL-LISTEN:$SERVER_PORT,reuseaddr,fork,pf=ip6,certificate="$SCRIPTDIR/certs/$SERVER_URL.pem",verify=0 TCP:127.0.0.1:62000 &
-    read -s password
-    kill $BUSYBOX_PID $(ps aux | grep OPENSSL-LISTEN | grep -v grep | awk '{print $2}')
-    echo "HTTPS Server on port $SERVER_PORT terminated, have fun!"
-    cd "$OLDPWD"
-fi
