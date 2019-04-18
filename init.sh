@@ -370,8 +370,8 @@ rmbuildbranch()
 
 killshell()
 {
-  rm -f ~/.bash_history
-  kill -9 $(pidof $0)
+  history -c
+  exit 0
 }
 
 # start script
