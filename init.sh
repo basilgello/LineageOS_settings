@@ -60,7 +60,7 @@ gerrit_reconstruct_topic()
   then
     OUTPUT_FORMAT=1
   else
-    echo "Output type must be --git or --repopick, exiting..."
+    echo "Output format must be --output-format=git or --output-format=repopick, exiting..."
     return
   fi
 
