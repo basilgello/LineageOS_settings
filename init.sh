@@ -204,6 +204,7 @@ gerrit_cr()
   # $2 is quoted gerrit query ("status:open")
   # $3 is quoted code-review label ("-2", "-1", "0", "+1", "+2",  "n/a")
   # $4 is quoted verified label ("-1", "0", "+1", "n/a")
+  # $5 is optional "--spam"
 
   # Some helper functions
 
@@ -215,12 +216,13 @@ gerrit_cr()
 
   GERRIT_HOSTNAME="$1"
   GERRIT_QUERY="$2"
+  GERRIT_SPAMFLAG="$5"
 
   [ -z "$GERRIT_HOSTNAME" ] || \
   [ -z "$GERRIT_QUERY" ] || \
   [ -z "$3" ] || \
   [ -z "$4" ] && \
-  echo "Usage: gerrit_cr <review-server-host> <\"gerrit-query\"> <\"CR-label\"> <\"V-label\">" && \
+  echo "Usage: gerrit_cr <review-server-host> <\"gerrit-query\"> <\"CR-label\"> <\"V-label\"> [--spam]" && \
   return
 
   CR_LABEL=""
@@ -251,6 +253,17 @@ gerrit_cr()
     V_LABEL=""
   else
     V_LABEL="--verified $V_LABEL"
+  fi
+
+  if [ -z "$GERRIT_SPAMFLAG" ]
+  then
+    GERRIT_SPAMFLAG="-n NONE"
+  elif [ "$GERRIT_SPAMFLAG" = "--spam" ]
+  then
+    GERRIT_SPAMFLAG=""
+  else
+    echo "ERROR: Spam trigger can be \"--spam\" or empty string"
+    return
   fi
 
   CR_TMPFILE=$(mktemp $HOME/CR-XXXXXXXXXXXXXXXX.txt)
@@ -305,7 +318,7 @@ gerrit_cr()
 
   # Perform actual review via SSH
 
-  ssh -p $GERRIT_SSH_PORT "$1" "gerrit review $CR_LABEL $V_LABEL $IDS"
+  ssh -p $GERRIT_SSH_PORT "$1" "gerrit review $GERRIT_SPAMFLAG $CR_LABEL $V_LABEL $IDS"
 
   # cleanup
 
